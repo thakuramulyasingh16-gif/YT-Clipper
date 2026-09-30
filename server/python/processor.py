@@ -116,7 +116,7 @@ def main():
             ass_path = os.path.join(temp_dir, f"subs_{clip_num}.ass")
 
             # 1. Download specific video segment
-            download_segment(
+            raw_clip_path = download_segment(
                 video_url=args.url,
                 start_time=clip['start'],
                 end_time=clip['end'],
