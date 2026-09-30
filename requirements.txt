@@ -1,4 +1,4 @@
-yt-dlp>=2024.08.06
+yt-dlp[default]
 youtube-transcript-api>=0.6.2
 moviepy>=1.0.3
 requests>=2.31.0
