@@ -1,0 +1,29 @@
+{
+  "name": "yt-clipper",
+  "version": "1.0.0",
+  "description": "AI-Powered YouTube Short-Form Video Clipper with Dynamic Word-by-Word Subtitles",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "server": "npm --prefix server start",
+    "server:dev": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build",
+    "build": "npm --prefix client run build",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "start": "node server/server.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "keywords": [
+    "youtube-shorts",
+    "clipper",
+    "video-editing",
+    "ffmpeg",
+    "subtitles",
+    "tiktok",
+    "ai-video"
+  ],
+  "author": "Amulya Pratap Singh",
+  "license": "MIT"
+}
