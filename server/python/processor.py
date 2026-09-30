@@ -10,7 +10,7 @@ from transcript import get_transcript, extract_video_id
 from highlight import detect_highlights
 from subtitle_gen import generate_ass_subtitles
 from video_pipeline import download_segment, render_clip
-from ytdlp_opts import apply_cookies
+from ytdlp_opts import apply_cookies, cookie_status
 
 try:
     import yt_dlp
@@ -176,7 +176,7 @@ def main():
         traceback.print_exc()
         send_event({
             "type": "error",
-            "error": str(e)
+            "error": f"{e}\n\n[cookie-debug] {cookie_status()}"
         })
         sys.exit(1)
     finally:
