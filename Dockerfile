@@ -19,7 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Verify ffmpeg and python installation
 RUN ffmpeg -version && python3 --version
+
 # Deno: JavaScript runtime yt-dlp needs to solve YouTube challenges
+# (Node 20 is now treated as "unsupported" by yt-dlp, Deno is the recommended runtime)
 COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 RUN deno --version
 
