@@ -58,7 +58,19 @@ def get_cookie_file():
 
 
 def apply_cookies(opts: dict) -> dict:
+    """Adds cookies + JS runtime + player-client settings to yt-dlp options."""
     cf = get_cookie_file()
     if cf:
         opts['cookiefile'] = cf
+
+    # JS runtime for YouTube challenge solving (Node exists in the image)
+    if shutil.which('node'):
+        opts.setdefault('js_runtimes', {'node': {}})
+
+    # Player clients (works around tv_downgraded "page needs to be reloaded")
+    clients = os.environ.get('YT_PLAYER_CLIENTS', 'default,web_embedded')
+    clients = [c.strip() for c in clients.split(',') if c.strip()]
+    if clients:
+        yt_args = opts.setdefault('extractor_args', {}).setdefault('youtube', {})
+        yt_args.setdefault('player_client', clients)
     return opts
