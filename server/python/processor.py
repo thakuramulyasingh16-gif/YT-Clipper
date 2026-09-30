@@ -31,6 +31,7 @@ def get_video_info(url: str) -> dict:
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
+        'cookiefile': '/etc/secrets/coockies.txt',
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
