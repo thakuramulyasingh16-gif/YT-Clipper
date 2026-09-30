@@ -1,21 +1,56 @@
 """
-Shared yt-dlp helper: injects YouTube cookies so YouTube's
-"Sign in to confirm you're not a bot" check passes on cloud servers.
+Shared yt-dlp helper for YT-Clipper.
 
-Cookies are read from (first match wins):
-  1. Render Secret File  /etc/secrets/cookies.txt   (or path in YT_COOKIES_FILE)
-  2. Env var YT_COOKIES  (full Netscape cookies.txt content)
+1. Cookies: injects YouTube cookies so YouTube's "Sign in to confirm you're
+   not a bot" check passes on cloud servers. Read from (first match wins):
+     - Render Secret File  /etc/secrets/cookies.txt  (or path in YT_COOKIES_FILE)
+     - Env var YT_COOKIES  (full Netscape cookies.txt content)
+
+2. JavaScript runtime: YouTube needs a JS runtime (+ yt-dlp-ejs) to solve its
+   challenges. We enable every runtime found on the machine (Deno preferred).
+
+3. Player clients: with logged-in cookies the default 'tv_downgraded' client
+   can fail with "The page needs to be reloaded", so we also allow
+   'web_embedded'. Override with env var YT_PLAYER_CLIENTS="default,web_embedded".
 """
 import os
 import shutil
+import subprocess
 
 _TARGET = os.path.join('/tmp', 'yt_cookies.txt')
 _STATUS = 'cookies not checked yet'
 _AUTH_NAMES = ('SID', '__Secure-1PSID', '__Secure-3PSID', 'LOGIN_INFO', 'SAPISID')
 
 
+def _env_status() -> str:
+    """Short description of yt-dlp / ejs / JS runtimes (shown in error messages)."""
+    parts = []
+    try:
+        import yt_dlp
+        parts.append('yt-dlp ' + yt_dlp.version.__version__)
+    except Exception as e:
+        parts.append(f'yt-dlp import failed ({e})')
+    try:
+        from importlib.metadata import version
+        parts.append('ejs ' + version('yt-dlp-ejs'))
+    except Exception:
+        parts.append('ejs MISSING')
+    for rt in ('deno', 'node'):
+        path = shutil.which(rt)
+        if not path:
+            parts.append(f'{rt} none')
+            continue
+        try:
+            out = subprocess.run([path, '--version'], capture_output=True,
+                                 text=True, timeout=5).stdout.strip().splitlines()
+            parts.append(f'{rt} {out[0] if out else "?"}')
+        except Exception:
+            parts.append(f'{rt} ?')
+    return '; '.join(parts)
+
+
 def cookie_status() -> str:
-    return _STATUS
+    return f'{_STATUS} || [env] {_env_status()}'
 
 
 def _describe(path: str) -> str:
@@ -58,14 +93,15 @@ def get_cookie_file():
 
 
 def apply_cookies(opts: dict) -> dict:
-    """Adds cookies + JS runtime + player-client settings to yt-dlp options."""
+    """Adds cookies + JS runtimes + player-client settings to yt-dlp options."""
     cf = get_cookie_file()
     if cf:
         opts['cookiefile'] = cf
 
-    # JS runtime for YouTube challenge solving (Node exists in the image)
-    if shutil.which('node'):
-        opts.setdefault('js_runtimes', {'node': {}})
+    # Enable every JS runtime that exists on this machine (Deno first)
+    runtimes = {rt: {} for rt in ('deno', 'node') if shutil.which(rt)}
+    if runtimes:
+        opts.setdefault('js_runtimes', runtimes)
 
     # Player clients (works around tv_downgraded "page needs to be reloaded")
     clients = os.environ.get('YT_PLAYER_CLIENTS', 'default,web_embedded')
