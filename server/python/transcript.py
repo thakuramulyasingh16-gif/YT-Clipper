@@ -14,6 +14,7 @@ try:
 except ImportError:
     yt_dlp = None
 
+from ytdlp_opts import apply_cookies
 
 def extract_video_id(url: str) -> Optional[str]:
     """
@@ -166,7 +167,7 @@ def fetch_transcript_via_ytdlp(video_url: str) -> Optional[List[Dict[str, Any]]]
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(apply_cookies(ydl_opts)) as ydl:
             ydl.download([video_url])
 
         # Find the written vtt file

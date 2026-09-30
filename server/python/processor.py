@@ -10,6 +10,7 @@ from transcript import get_transcript, extract_video_id
 from highlight import detect_highlights
 from subtitle_gen import generate_ass_subtitles
 from video_pipeline import download_segment, render_clip
+from ytdlp_opts import apply_cookies
 
 try:
     import yt_dlp
@@ -26,17 +27,13 @@ def get_video_info(url: str) -> dict:
     """Fetches high level video metadata via yt-dlp."""
     if not yt_dlp:
         return {'title': 'YouTube Video', 'duration': 300.0}
-        
-    if os.path.exists('/etc/secrets/cookies.txt'):
-        shutil.copy('/etc/secrets/cookies.txt','/tmp/cookies.txt')
-        
+
     ydl_opts = {
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
-        'cookiefile': '/tmp/cookies.txt',
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(apply_cookies(ydl_opts)) as ydl:
         info = ydl.extract_info(url, download=False)
         return {
             'title': info.get('title', 'YouTube Video'),

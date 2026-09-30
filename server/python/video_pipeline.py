@@ -10,6 +10,7 @@ try:
 except ImportError:
     yt_dlp = None
 
+from ytdlp_opts import apply_cookies
 
 def escape_ffmpeg_path(path: str) -> str:
     """
@@ -45,7 +46,7 @@ def download_segment(
         'no_warnings': True
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(apply_cookies(ydl_opts)) as ydl:
         ydl.download([video_url])
 
     # Find the downloaded file
