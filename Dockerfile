@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     ffmpeg \
     fonts-dejavu-core \
-    fonts-montserrat \
     fonts-liberation \
     ca-certificates \
     curl \
