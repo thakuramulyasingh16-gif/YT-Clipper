@@ -26,12 +26,15 @@ def get_video_info(url: str) -> dict:
     """Fetches high level video metadata via yt-dlp."""
     if not yt_dlp:
         return {'title': 'YouTube Video', 'duration': 300.0}
-
+        
+    if os.path.exists('/etc/secrets/cookies.txt'):
+        shutil.copy('/etc/secrets/cookies.txt','/tmp/cookies.txt')
+        
     ydl_opts = {
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
-        'cookiefile': '/etc/secrets/cookies.txt',
+        'cookiefile': '/tmp/cookies.txt',
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
