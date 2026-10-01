@@ -12,12 +12,33 @@ Shared yt-dlp helper for YT-Clipper.
 3. Player clients: with logged-in cookies the default 'tv_downgraded' client
    can fail with "The page needs to be reloaded", so we also allow
    'web_embedded'. Override with env var YT_PLAYER_CLIENTS="default,web_embedded".
+
+4. CPU limit: ffmpeg picks its thread count from the number of visible CPUs,
+   and on big hosts that makes it use far more RAM than a small (512 MB) server has.
+   We pin this process (and every child, e.g. the ffmpeg started by yt-dlp)
+   to MAX_CPUS cores (default 2).
 """
 import os
 import shutil
 import subprocess
 
 _TARGET = os.path.join('/tmp', 'yt_cookies.txt')
+
+
+def _limit_cpus():
+    """Pin this process + children to a few CPUs so ffmpeg/x264 use fewer threads (less RAM)."""
+    try:
+        n = int(os.environ.get('MAX_CPUS', '2'))
+        if n <= 0 or not hasattr(os, 'sched_setaffinity'):
+            return
+        cpus = sorted(os.sched_getaffinity(0))
+        if len(cpus) > n:
+            os.sched_setaffinity(0, set(cpus[:n]))
+    except Exception as e:
+        print(f'[cpu-limit] skipped: {e}', flush=True)
+
+
+_limit_cpus()  # runs once, when this module is first imported by processor.py
 _STATUS = 'cookies not checked yet'
 _AUTH_NAMES = ('SID', '__Secure-1PSID', '__Secure-3PSID', 'LOGIN_INFO', 'SAPISID')
 
