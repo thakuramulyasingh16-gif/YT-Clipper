@@ -12,6 +12,26 @@ except ImportError:
 
 from ytdlp_opts import apply_cookies
 
+# ---- Resource settings (tuned for small servers, e.g. Render 512 MB) ----------
+# CLIP_BASE_WIDTH : output width of the clip. 720 -> 720x1280 (9:16). Use 1080 on bigger plans.
+# CLIP_SOURCE_HEIGHT : max height of the downloaded source video (default = CLIP_BASE_WIDTH).
+# CLIP_X264_PRESET : ffmpeg x264 preset (veryfast uses far less CPU/RAM than fast/medium).
+# CLIP_FFMPEG_THREADS : encoder threads (fewer = less RAM).
+BASE_WIDTH = int(os.environ.get('CLIP_BASE_WIDTH', '720'))
+SOURCE_HEIGHT = int(os.environ.get('CLIP_SOURCE_HEIGHT', str(BASE_WIDTH)))
+X264_PRESET = os.environ.get('CLIP_X264_PRESET', 'veryfast')
+FFMPEG_THREADS = os.environ.get('CLIP_FFMPEG_THREADS', '2')
+
+
+def output_size(aspect_ratio: str):
+    """Returns (width, height) for the chosen aspect ratio (always even numbers)."""
+    b = BASE_WIDTH - (BASE_WIDTH % 2)
+    if aspect_ratio == '9:16':
+        return b, (b * 16 // 9) // 2 * 2
+    if aspect_ratio == '1:1':
+        return b, b
+    return (b * 16 // 9) // 2 * 2, b  # 16:9
+
 def escape_ffmpeg_path(path: str) -> str:
     """
     Escapes paths for FFmpeg filter arguments (especially on Windows).
@@ -38,7 +58,10 @@ def download_segment(
     temp_download_template = os.path.splitext(output_path)[0] + "_raw.%(ext)s"
 
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': (
+            f'bestvideo[ext=mp4][height<={SOURCE_HEIGHT}]+bestaudio[ext=m4a]/'
+            f'best[ext=mp4][height<={SOURCE_HEIGHT}]/best[height<={SOURCE_HEIGHT}]/best'
+        ),
         'outtmpl': temp_download_template,
         'download_ranges': yt_dlp.utils.download_range_func(None, [(start_time, end_time)]),
         'force_keyframes_at_cuts': True,
@@ -80,89 +103,62 @@ def render_clip(
     Processes the raw video slice through FFmpeg:
     - Crops or applies blurred background letterboxing to 9:16 / 16:9 / 1:1
     - Burns dynamic ASS word-by-word subtitles
-    - Encodes pristine MP4 with faststart (no watermarks)
+    - Encodes MP4 with faststart (no watermarks)
+    Tuned to be light on RAM/CPU (see settings at the top of this file).
     """
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     sub_arg = escape_ffmpeg_path(ass_subtitle_path) if ass_subtitle_path and os.path.exists(ass_subtitle_path) else None
+    W, H = output_size(aspect_ratio)
 
-    # Construct video filter chain based on aspect ratio & framing mode
-    if aspect_ratio == '9:16':
-        # 1080x1920 vertical format
-        if framing == 'crop':
-            # Smart center crop
-            vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2"
-            if sub_arg:
-                vf += f",ass='{sub_arg}'"
-            filter_args = ["-vf", vf]
+    def build_filter_args(with_subs: bool):
+        sub = f",ass='{sub_arg}'" if (with_subs and sub_arg) else ""
+        if aspect_ratio == '9:16' and framing != 'crop':
+            # Blurred background: blur a tiny copy and scale it up (much cheaper than blurring full-res)
+            bw, bh = max(W // 4, 2) // 2 * 2, max(H // 4, 2) // 2 * 2
+            fc = (
+                f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=6:2,scale={W}:{H}[bg];"
+                f"[0:v]scale={W}:-2:force_original_aspect_ratio=decrease[fg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2[base];"
+                + (f"[base]ass='{sub_arg}'[outv]" if (with_subs and sub_arg) else "[base]null[outv]")
+            )
+            return ["-filter_complex", fc, "-map", "[outv]", "-map", "0:a?"]
+        if aspect_ratio == '16:9':
+            vf = f"scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2" + sub
         else:
-            # Cinematic Blurred Background (Default & Best for Podcasts/Interviews)
-            if sub_arg:
-                fc = (
-                    f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5[bg];"
-                    f"[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
-                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[base];"
-                    f"[base]ass='{sub_arg}'[outv]"
-                )
-            else:
-                fc = (
-                    f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5[bg];"
-                    f"[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
-                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[outv]"
-                )
-            filter_args = ["-filter_complex", fc, "-map", "[outv]", "-map", "0:a?"]
+            vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}:(in_w-{W})/2:(in_h-{H})/2" + sub
+        return ["-vf", vf]
 
-    elif aspect_ratio == '1:1':
-        # 1080x1080 square format
-        vf = "scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080:(in_w-1080)/2:(in_h-1080)/2"
-        if sub_arg:
-            vf += f",ass='{sub_arg}'"
-        filter_args = ["-vf", vf]
+    def build_cmd(with_subs: bool):
+        return [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", raw_video_path,
+        ] + build_filter_args(with_subs) + [
+            "-threads", FFMPEG_THREADS, "-filter_complex_threads", "1",
+            "-c:v", "libx264",
+            "-preset", X264_PRESET,
+            "-crf", "23",
+            "-x264-params", "rc-lookahead=10:ref=2",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            output_path,
+        ]
 
-    else:
-        # 16:9 standard landscape format
-        vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
-        if sub_arg:
-            vf += f",ass='{sub_arg}'"
-        filter_args = ["-vf", vf]
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", raw_video_path
-    ] + filter_args + [
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "22",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-        output_path
-    ]
-
-    print(f"[FFmpeg Command] {' '.join(cmd)}")
+    cmd = build_cmd(True)
+    print(f"[FFmpeg Command] {' '.join(cmd)}", flush=True)
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     if result.returncode != 0:
-        print(f"[FFmpeg Warning] Ass filter execution had issues: {result.stderr[-400:]}")
-        # If ASS filter had an error (e.g. fontconfig/libass path issue), attempt fallback without subtitle burn
-        # or with basic scale so the user still gets their pristine cropped video!
-        if sub_arg and "ass" in result.stderr:
-            print("[FFmpeg Fallback] Retrying render without ASS filter...")
-            fallback_cmd = [
-                "ffmpeg", "-y",
-                "-i", raw_video_path,
-                "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "22",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-movflags", "+faststart",
-                output_path
-            ]
-            fb_res = subprocess.run(fallback_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if fb_res.returncode != 0:
-                raise RuntimeError(f"FFmpeg fallback failed: {fb_res.stderr[-300:]}")
+        err = (result.stderr or '').strip()
+        print(f"[FFmpeg Error] {err[-600:]}", flush=True)
+        # If the subtitle (ASS) filter failed (fontconfig/libass issue), retry without burning subtitles
+        if sub_arg:
+            print("[FFmpeg Fallback] Retrying render without subtitles...", flush=True)
+            fb = subprocess.run(build_cmd(False), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if fb.returncode != 0:
+                raise RuntimeError(f"FFmpeg fallback failed: {(fb.stderr or '').strip()[-400:]}")
         else:
-            raise RuntimeError(f"FFmpeg failed with code {result.returncode}: {result.stderr[-300:]}")
+            raise RuntimeError(f"FFmpeg failed with code {result.returncode}: {err[-400:]}")
 
     return output_path
