@@ -95,7 +95,11 @@ def get_cookie_file():
     path = os.environ.get('YT_COOKIES_FILE') or '/etc/secrets/cookies.txt'
     try:
         if os.path.isfile(path):
-            shutil.copyfile(path, _TARGET)
+            # Copy the secret file only once (or when it is newer). YouTube rotates login
+            # cookies during use and yt-dlp saves the fresh ones into _TARGET; copying the
+            # original file again on every job would throw those fresh cookies away.
+            if (not os.path.isfile(_TARGET)) or os.path.getmtime(path) > os.path.getmtime(_TARGET):
+                shutil.copyfile(path, _TARGET)
             _STATUS = f'secret file {path} FOUND -> ' + _describe(_TARGET)
             return _TARGET
         text = os.environ.get('YT_COOKIES', '').strip()
