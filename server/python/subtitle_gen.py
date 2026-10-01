@@ -38,11 +38,13 @@ def generate_ass_subtitles(
     aspect_ratio: str = '9:16',
     highlight_color: str = 'yellow',
     font_size: int = 70,
-    font_name: str = "Montserrat, Arial Black, Impact, DejaVu Sans, sans-serif"
+    font_name: str = "DejaVu Sans"
 ) -> str:
     """
     Generates dynamic word-by-word highlighted ASS subtitle file (TikTok / Hormozi style).
     """
+    # ASS style lines are comma-separated: a font list with commas shifts every field
+    font_name = (font_name.split(',')[0].strip() or 'DejaVu Sans')
     # Video dimensions configuration
     if aspect_ratio == '9:16':
         res_x = 1080
